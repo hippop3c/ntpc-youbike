@@ -1,0 +1,59 @@
+
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NTPC YouBike</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+#map {height: 90vh;}
+.leaflet-marker-icon.icon-wrap{background:transparent!important;border:none!important;}
+.icon-split{width:40px;height:40px;border-radius:50%;border:2px solid rgba(0,0,0,.3);
+display:flex;flex-direction:column;align-items:center;justify-content:center;
+font-weight:800;color:#0b1020;line-height:1;box-shadow:0 1px 2px rgba(0,0,0,.25);}
+.icon-split .top{font-size:12px;transform:translateY(1px);}
+.icon-split .bottom{font-size:12px;transform:translateY(-1px);}
+.icon-split .divider{width:70%;height:0;border-top:1.5px solid rgba(0,0,0,.35);margin:2px 0;}
+.icon-split.ok{background:#22c55e;}
+.icon-split.norent{background:#f59e0b;}
+.icon-split.noreturn{background:#ef4444;}
+</style>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body>
+<div id="map"></div>
+<script>
+const PROXY = "https://ntpc-youbike-proxy.chatgpt.workers.dev/?url=";
+const API = PROXY + encodeURIComponent("https://data.ntpc.gov.tw/api/datasets/010e5b15-3823-4b20-b401-b1cf000550c5/json?page=0&size=10000");
+
+const map = L.map('map').setView([25.013,121.465], 13);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
+const layer = L.layerGroup().addTo(map);
+
+function cls(sbi,bemp){
+  if(Number(bemp)===0) return "noreturn";
+  if(Number(sbi)===0) return "norent";
+  return "ok";
+}
+
+function draw(data){
+  layer.clearLayers();
+  const pts=[];
+  data.forEach(r=>{
+    const lat=Number(r.lat), lng=Number(r.lng);
+    if(!lat||!lng) return;
+    const sbi=Number(r.sbi)||0, bemp=Number(r.bemp)||0;
+    const c=cls(sbi,bemp);
+    const html = `<div class='icon-split ${c}'><div class='top'>${sbi}</div><div class='divider'></div><div class='bottom'>${bemp}</div></div>`;
+    const icon=L.divIcon({className:"icon-wrap",html,iconSize:[40,40],iconAnchor:[20,20]});
+    L.marker([lat,lng],{icon}).addTo(layer);
+    pts.push([lat,lng]);
+  });
+  if(pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.05));
+}
+
+fetch(API).then(r=>r.json()).then(d=>draw(d)).catch(e=>alert("資料載入失敗："+e));
+</script>
+</body>
+</html>
