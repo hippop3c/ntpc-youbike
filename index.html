@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>新北市 YouBike 2.0｜即時場站資訊（全量資料）</title>
+  <title>新北市 YouBike 2.0｜即時場站資訊（GitHub + Worker API）</title>
 
   <!-- Leaflet CSS -->
   <link
@@ -123,7 +123,7 @@
 <body>
 <header>
   <div class="wrap">
-    <h1>新北市 YouBike 2.0｜即時場站資訊（全量）</h1>
+    <h1>新北市 YouBike 2.0｜即時場站資訊（GitHub + Worker API）</h1>
     <div class="controls">
       <label><input id="q" placeholder="搜尋場站名稱 / 站點代號 / 地址…"></label>
       <label><select id="district"><option value="">全部行政區</option></select></label>
@@ -132,12 +132,13 @@
         <option value="open">營運中</option>
         <option value="closed">暫停營運</option>
       </select></label>
-      <label><select id="interval">
-        <option value="30">每 30 秒自動更新</option>
-        <option value="60" selected>每 60 秒自動更新</option>
-        <option value="120">每 2 分鐘自動更新</option>
-        <option value="0">手動</option>
-      </select></label>
+      <label>
+        <select id="interval">
+          <option value="30" selected>每 30 秒自動更新</option>
+          <option value="60">每 60 秒自動更新</option>
+          <option value="0">關閉自動更新</option>
+        </select>
+      </label>
     </div>
     <div class="meta">
       <span id="lastUpdate" class="pill">最後更新：—</span>
@@ -147,7 +148,9 @@
     <div class="footer" style="padding-left:0;padding-right:0;">
       顏色規則：<b style="color:var(--ok)">綠</b>＝可借&gt;0 且 可還&gt;0；
       <b style="color:var(--warn)">橘</b>＝可借=0；
-      <b style="color:var(--bad)">紅</b>＝可還=0。資料來自新北市政府資料開放平臺。
+      <b style="color:var(--bad)">紅</b>＝可還=0。
+      資料來源：你的 Cloudflare Worker 👉
+      <code>https://green-boat-a984.hippop3c.workers.dev/</code>
     </div>
   </div>
 </header>
@@ -169,28 +172,15 @@
       <tbody id="tbody"></tbody>
     </table>
     <div id="empty" class="footer hidden">找不到符合條件的場站。</div>
-    <div class="footer">資料來源：新北市政府資料開放平臺（分頁 + 代理抓取）。</div>
+    <div class="footer">GitHub Pages 純前端，所有資料都由 Cloudflare Worker 代理取得。</div>
   </div>
 </main>
 
 <script>
-/* ========= OpenData 設定（多頁 + 代理） ========= */
-const BASE_API =
-  "https://data.ntpc.gov.tw/api/datasets/010e5b15-3823-4b20-b401-b1cf000550c5/json";
-const PAGE_SIZE = 1000; // 官方單頁上限 1000
+// ====== 這邊改成你的 Worker API ======
+const API = "https://green-boat-a984.hippop3c.workers.dev/";
 
-// 兩個 proxy：先用 isomorphic-git，失敗再換 allorigins
-const SOURCES = [
-  (page, size) =>
-    "https://cors.isomorphic-git.org/" +
-    BASE_API +
-    "?page=" + page + "&size=" + size,
-  (page, size) =>
-    "https://api.allorigins.win/raw?url=" +
-    encodeURIComponent(BASE_API + "?page=" + page + "&size=" + size)
-];
-
-/* ========= DOM ========= */
+// ====== DOM ======
 const el = id => document.getElementById(id);
 const tbody      = el("tbody");
 const lastUpdate = el("lastUpdate");
@@ -208,7 +198,7 @@ let sortKey = "sarea";
 let sortAsc = true;
 let districtBuilt = false;
 
-/* ========= Leaflet 地圖 ========= */
+// ====== Leaflet Map ======
 const map = L.map('map', { zoomControl:true, attributionControl:true }).setView([25.06,121.5], 12);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
   maxZoom:19, attribution:'&copy; OpenStreetMap'
@@ -221,7 +211,7 @@ function cls(sbi, bemp){
   return "ok";                              // 兩個都 >0 綠
 }
 
-/* ========= UI render ========= */
+// ====== Render ======
 function render(){
   const kw   = q.value.trim().toLowerCase();
   const dist = district.value;
@@ -322,57 +312,15 @@ function updateMap(){
   }
 }
 
-/* ========= 多頁 + 多來源 抓取 ========= */
-async function robustParse(res){
-  try{ return await res.json(); }
-  catch(_){
-    const t = await res.text();
-    try{ return JSON.parse(t); } catch(e){ throw new Error("非 JSON 回應"); }
-  }
-}
-
-async function fetchFromSource(buildUrl){
-  const all = [];
-  let page = 0;
-  const maxPages = 30; // 安全上限
-
-  while(true){
-    const url = buildUrl(page, PAGE_SIZE);
-    console.log("fetch page", page, "url:", url);
-    const res = await fetch(url, {cache:"no-store"});
-    if(!res.ok) throw new Error(res.status + " " + res.statusText);
-    const data = await robustParse(res);
-    const arr  = Array.isArray(data) ? data : (data && data.data ? data.data : []);
-    if(!Array.isArray(arr)) throw new Error("資料格式錯誤");
-
-    if(!arr.length) break;
-    all.push(...arr);
-
-    if(arr.length < PAGE_SIZE) break; // 最後一頁
-    page++;
-    if(page > maxPages) break;
-  }
-  return all;
-}
-
-async function fetchAllPages(){
-  let lastError = null;
-  for(const build of SOURCES){
-    try{
-      const all = await fetchFromSource(build);
-      if(all.length) return all;
-    }catch(e){
-      console.warn("來源失敗，換下一個 proxy：", e);
-      lastError = e;
-    }
-  }
-  throw lastError || new Error("所有來源皆無法取得資料");
-}
-
+// ====== Data Fetch (from Worker) ======
 async function fetchData(){
   try{
-    const data = await fetchAllPages();
-    raw = data;
+    const url = API + (API.includes("?") ? "&" : "?") + "t=" + Date.now(); // 防 cache
+    console.log("fetch:", url);
+    const res = await fetch(url, {cache:"no-store"});
+    if(!res.ok) throw new Error(res.status + " " + res.statusText);
+    const data = await res.json();
+    raw = Array.isArray(data) ? data : (data && data.data ? data.data : []);
     const now = new Date();
     lastUpdate.textContent = "最後更新：" + now.toLocaleString("zh-TW",{hour12:false});
     render();
@@ -391,7 +339,7 @@ function setTimer(){
   }
 }
 
-/* ========= 事件 ========= */
+// ====== Events ======
 q.addEventListener("input", render);
 district.addEventListener("change", render);
 statusSel.addEventListener("change", render);
@@ -405,9 +353,10 @@ document.querySelectorAll("th button[data-sort]").forEach(btn=>{
   });
 });
 
-/* ========= 初始化 ========= */
+// ====== Init ======
 fetchData();
 setTimer();
 </script>
 </body>
 </html>
+
