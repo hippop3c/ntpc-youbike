@@ -311,13 +311,14 @@ function updateMap(){
   }
 }
 
-/* ========= 多頁抓取 ========= */
+/* ========= 多頁抓取（每頁 1000，直到回傳數量 <1000 就停） ========= */
 async function fetchAllPages(){
   const all = [];
   let page = 0;
 
   while(true){
     const url = `${BASE_API}?page=${page}&size=${PAGE_SIZE}`;
+    console.log("fetch page", page, "url:", url);
     const res = await fetch(url, {cache:"no-store"});
     if(!res.ok) throw new Error(res.status + " " + res.statusText);
     const data = await res.json();
@@ -331,6 +332,7 @@ async function fetchAllPages(){
     page++;
     if(page > 30) break;              // 安全上限，避免無限迴圈
   }
+  console.log("total records:", all.length);
   return all;
 }
 
@@ -344,7 +346,7 @@ async function fetchData(){
   }catch(e){
     console.error("取得資料失敗：", e);
     lastUpdate.textContent = "最後更新失敗：" + (e.message || e);
-    alert("YouBike 資料抓取失敗：\\n" + (e.message || e));
+    alert("YouBike 資料抓取失敗：\n" + (e.message || e));
   }
 }
 
