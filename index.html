@@ -169,15 +169,26 @@
       <tbody id="tbody"></tbody>
     </table>
     <div id="empty" class="footer hidden">找不到符合條件的場站。</div>
-    <div class="footer">資料來源：新北市政府資料開放平臺（多頁抓取）。</div>
+    <div class="footer">資料來源：新北市政府資料開放平臺（分頁 + 代理抓取）。</div>
   </div>
 </main>
 
 <script>
-/* ========= OpenData 設定（多頁抓取） ========= */
+/* ========= OpenData 設定（多頁 + 代理） ========= */
 const BASE_API =
   "https://data.ntpc.gov.tw/api/datasets/010e5b15-3823-4b20-b401-b1cf000550c5/json";
-const PAGE_SIZE = 1000; // 官方上限 1000，分頁抓全部
+const PAGE_SIZE = 1000; // 官方單頁上限 1000
+
+// 兩個 proxy：先用 isomorphic-git，失敗再換 allorigins
+const SOURCES = [
+  (page, size) =>
+    "https://cors.isomorphic-git.org/" +
+    BASE_API +
+    "?page=" + page + "&size=" + size,
+  (page, size) =>
+    "https://api.allorigins.win/raw?url=" +
+    encodeURIComponent(BASE_API + "?page=" + page + "&size=" + size)
+];
 
 /* ========= DOM ========= */
 const el = id => document.getElementById(id);
@@ -210,7 +221,7 @@ function cls(sbi, bemp){
   return "ok";                              // 兩個都 >0 綠
 }
 
-/* ========= 資料處理 ========= */
+/* ========= UI render ========= */
 function render(){
   const kw   = q.value.trim().toLowerCase();
   const dist = district.value;
@@ -311,17 +322,26 @@ function updateMap(){
   }
 }
 
-/* ========= 多頁抓取（每頁 1000，直到回傳數量 <1000 就停） ========= */
-async function fetchAllPages(){
+/* ========= 多頁 + 多來源 抓取 ========= */
+async function robustParse(res){
+  try{ return await res.json(); }
+  catch(_){
+    const t = await res.text();
+    try{ return JSON.parse(t); } catch(e){ throw new Error("非 JSON 回應"); }
+  }
+}
+
+async function fetchFromSource(buildUrl){
   const all = [];
   let page = 0;
+  const maxPages = 30; // 安全上限
 
   while(true){
-    const url = `${BASE_API}?page=${page}&size=${PAGE_SIZE}`;
+    const url = buildUrl(page, PAGE_SIZE);
     console.log("fetch page", page, "url:", url);
     const res = await fetch(url, {cache:"no-store"});
     if(!res.ok) throw new Error(res.status + " " + res.statusText);
-    const data = await res.json();
+    const data = await robustParse(res);
     const arr  = Array.isArray(data) ? data : (data && data.data ? data.data : []);
     if(!Array.isArray(arr)) throw new Error("資料格式錯誤");
 
@@ -330,10 +350,23 @@ async function fetchAllPages(){
 
     if(arr.length < PAGE_SIZE) break; // 最後一頁
     page++;
-    if(page > 30) break;              // 安全上限，避免無限迴圈
+    if(page > maxPages) break;
   }
-  console.log("total records:", all.length);
   return all;
+}
+
+async function fetchAllPages(){
+  let lastError = null;
+  for(const build of SOURCES){
+    try{
+      const all = await fetchFromSource(build);
+      if(all.length) return all;
+    }catch(e){
+      console.warn("來源失敗，換下一個 proxy：", e);
+      lastError = e;
+    }
+  }
+  throw lastError || new Error("所有來源皆無法取得資料");
 }
 
 async function fetchData(){
@@ -378,4 +411,3 @@ setTimer();
 </script>
 </body>
 </html>
-
