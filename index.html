@@ -1,155 +1,118 @@
 <!doctype html>
 <html lang="zh-Hant-TW">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta charset="utf-8">
 <title>新北市 YouBike 2.0｜即時場站地圖</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
 
-<link rel="stylesheet"
-  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link
+  rel="stylesheet"
+  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+/>
 
 <style>
-:root{
-  --bg:#0b1020; --card:#111730; --muted:#9aa3b2; --text:#eaf0ff;
-  --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444;
-}
-*{box-sizing:border-box}
-body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,"PingFang TC","Microsoft JhengHei",sans-serif;background:var(--bg);color:var(--text)}
-header{position:sticky;top:0;z-index:10;background:rgba(11,16,32,.9);border-bottom:1px solid rgba(255,255,255,.08)}
-.wrap{max-width:1200px;margin:0 auto;padding:16px}
-h1{font-size:20px;margin:0 0 8px}
-.controls{display:grid;gap:8px;grid-template-columns:1fr 160px 160px}
-.controls>*{background:var(--card);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:8px 10px}
-.controls input,.controls select{width:100%;background:transparent;border:none;color:inherit}
-.meta{display:flex;gap:10px;font-size:12px;color:var(--muted);margin-top:6px}
-#map{height:60vh;border:1px solid rgba(255,255,255,.08);border-radius:12px;margin:12px 0}
-table{width:100%;border-collapse:collapse;font-size:13px}
-th,td{padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.06)}
-tr:hover td{background:rgba(255,255,255,.04)}
+html,body{margin:0;height:100%;background:#0b1020;color:#eaf0ff;font-family:sans-serif}
+#map{height:100%}
 
-.leaflet-marker-icon.icon-wrap{background:none;border:none}
+/* split icon */
+.icon-wrap{background:none;border:none}
 .icon{
-  width:38px;height:38px;border-radius:50%;
-  display:flex;flex-direction:column;
-  align-items:center;justify-content:center;
-  font-size:12px;font-weight:700;color:#000;
+  width:36px;height:36px;border-radius:50%;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  font-size:12px;font-weight:bold;color:#000;
   border:2px solid rgba(0,0,0,.4)
 }
-.ok{background:var(--ok)}
-.norent{background:var(--warn)}
-.noreturn{background:var(--bad)}
+.icon.ok{background:#22c55e}
+.icon.norent{background:#f59e0b}
+.icon.noreturn{background:#ef4444}
+.icon hr{width:70%;border:none;border-top:1px solid rgba(0,0,0,.4);margin:2px 0}
 </style>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 <body>
 
-<header>
-  <div class="wrap">
-    <h1>新北市 YouBike 2.0｜即時場站地圖</h1>
-    <div class="controls">
-      <input id="q" placeholder="搜尋站名 / 地址">
-      <select id="district"><option value="">全部行政區</option></select>
-      <select id="status">
-        <option value="">全部狀態</option>
-        <option value="open">營運中</option>
-        <option value="closed">暫停</option>
-      </select>
-    </div>
-    <div class="meta">
-      <span id="count">—</span>
-      <span id="time">—</span>
-    </div>
-  </div>
-</header>
-
-<div class="wrap">
-  <div id="map"></div>
-
-  <table>
-    <thead>
-      <tr>
-        <th>站名</th><th>行政區</th><th>可借</th><th>可還</th>
-      </tr>
-    </thead>
-    <tbody id="tbody"></tbody>
-  </table>
-</div>
+<div id="map"></div>
 
 <script>
-const API = "https://data.ntpc.gov.tw/api/datasets/010e5b15-3823-4b20-b401-b1cf000550c5/json";
-let raw = [];
+/* ====== 設定 ====== */
+const WORKER_API = "https://green-boat-a984.hippop3c.workers.dev/youbike";
+const AUTO_REFRESH_SEC = 60;
 
-const map = L.map("map").setView([25.01,121.46],12);
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
+/* ====== 地圖 ====== */
+const map = L.map("map").setView([25.06,121.52],12);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
+  maxZoom:19
+}).addTo(map);
+
 const layer = L.layerGroup().addTo(map);
 
-function color(sbi,bemp){
-  if(bemp==0) return "noreturn";
-  if(sbi==0) return "norent";
+/* ====== icon 顏色 ====== */
+function iconClass(sbi,bemp){
+  if(bemp===0) return "noreturn";
+  if(sbi===0) return "norent";
   return "ok";
 }
 
+/* ====== 抓資料 ====== */
 async function fetchData(){
-  const r = await fetch(API);
-  raw = await r.json();
-  render();
-  document.getElementById("time").textContent =
-    "更新：" + new Date().toLocaleTimeString();
-}
+  try{
+    const res = await fetch(WORKER_API);
+    const data = await res.json();
 
-function render(){
-  const q = document.getElementById("q").value.toLowerCase();
-  const dist = document.getElementById("district").value;
-  const st = document.getElementById("status").value;
+    layer.clearLayers();
+    const bounds = [];
 
-  layer.clearLayers();
-  const tb = document.getElementById("tbody");
-  tb.innerHTML = "";
+    data.forEach(d=>{
+      const lat = Number(d.lat);
+      const lng = Number(d.lng);
+      if(!lat || !lng) return;
 
-  const areas = new Set();
+      const sbi = Number(d.sbi)||0;
+      const bemp = Number(d.bemp)||0;
+      const cls = iconClass(sbi,bemp);
 
-  raw.filter(r=>{
-    if(dist && r.sarea!==dist) return false;
-    if(st==="open" && r.act!=="1") return false;
-    if(st==="closed" && r.act==="1") return false;
-    if(q && !(`${r.sna}${r.ar}`.toLowerCase().includes(q))) return false;
-    return true;
-  }).forEach(r=>{
-    areas.add(r.sarea);
+      const icon = L.divIcon({
+        className:"icon-wrap",
+        html:`
+          <div class="icon ${cls}">
+            <div>${sbi}</div>
+            <hr>
+            <div>${bemp}</div>
+          </div>
+        `,
+        iconSize:[36,36],
+        iconAnchor:[18,18]
+      });
 
-    const sbi=+r.sbi, bemp=+r.bemp;
-    const icon=L.divIcon({
-      className:"icon-wrap",
-      html:`<div class="icon ${color(sbi,bemp)}">${sbi}<br>${bemp}</div>`,
-      iconSize:[38,38], iconAnchor:[19,19]
+      const m = L.marker([lat,lng],{icon}).addTo(layer);
+      m.bindTooltip(d.sna,{direction:"top"});
+      m.bindPopup(`
+        <b>${d.sna}</b><br>
+        站號：${d.sno}<br>
+        行政區：${d.sarea}<br>
+        可借：${sbi}<br>
+        可還：${bemp}<br>
+        車柱：${d.tot}
+      `);
+
+      bounds.push([lat,lng]);
     });
 
-    L.marker([r.lat,r.lng],{icon})
-      .bindPopup(`<b>${r.sna}</b><br>${r.ar}<br>可借:${sbi} 可還:${bemp}`)
-      .addTo(layer);
+    if(bounds.length){
+      map.fitBounds(bounds,{padding:[20,20]});
+    }
 
-    tb.innerHTML += `<tr>
-      <td>${r.sna}</td><td>${r.sarea}</td><td>${sbi}</td><td>${bemp}</td>
-    </tr>`;
-  });
-
-  const sel=document.getElementById("district");
-  if(sel.options.length===1){
-    [...areas].sort().forEach(a=>{
-      sel.innerHTML+=`<option>${a}</option>`;
-    });
+    console.log("YouBike stations:", data.length);
+  }catch(e){
+    console.error("抓取失敗",e);
+    alert("資料抓取失敗，請確認 Worker 是否正常");
   }
-
-  document.getElementById("count").textContent = `站點數：${raw.length}`;
 }
 
-["q","district","status"].forEach(id=>{
-  document.getElementById(id).addEventListener("input",render);
-});
-
+/* ====== 初始化 ====== */
 fetchData();
-setInterval(fetchData,30000);
+setInterval(fetchData, AUTO_REFRESH_SEC*1000);
 </script>
 
 </body>
