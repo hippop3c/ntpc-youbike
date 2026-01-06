@@ -1,179 +1,158 @@
-<!DOCTYPE html>
-<html lang="zh-Hant">
+<!doctype html>
+<html lang="zh-Hant-TW">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>桃園 YouBike 即時更新地圖</title>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4QjN2Rj3G8V4Et3fA4hWw2RTu7NnU5wV2Gf2Z8rC+o=" crossorigin="" />
-  <style>
-    html, body { height: 100%; margin: 0; }
-    #app { display: flex; flex-direction: column; height: 100%; }
-    header { padding: 8px 12px; background: #0b5fff; color: #fff; }
-    header h1 { font-size: 18px; margin: 0; }
-    header .sub { font-size: 12px; opacity: 0.85; }
-    .controls { display: flex; gap: 8px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
-    .controls input, .controls select { padding: 6px 8px; font-size: 14px; }
-    .controls .legend { display:flex; align-items:center; gap:6px; font-size:12px; }
-    .legend span { display:inline-flex; align-items:center; gap:3px; }
-    .dot { width: 12px; height: 12px; border-radius: 50%; display:inline-block; }
-    .dot.green { background:#2ecc71; }
-    .dot.orange { background:#f5a623; }
-    .dot.red { background:#e74c3c; }
-    .dot.gray { background:#9b9b9b; }
-    #map { flex: 1 1 auto; }
-    footer { padding: 6px 12px; font-size: 12px; color: #555; background: #f6f7fb; }
-    .hidden { display: none; }
-  </style>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>新北市 YouBike 2.0｜地圖版（無見車率）</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
+<style>
+body{
+  margin:0; font-family:-apple-system,BlinkMacSystemFont,"Microsoft JhengHei",sans-serif;
+  background:#0b1020; color:#fff;
+}
+#map{height:70vh;width:100%;}
+.panel{padding:10px;background:#111730;}
+input,select{padding:6px;border-radius:6px;border:none;margin-right:6px;}
+
+.icon-wrap{background:transparent!important;border:none!important;}
+.icon{
+  width:38px;height:38px;border-radius:50%;
+  display:flex;flex-direction:column;justify-content:center;align-items:center;
+  font-weight:700;
+}
+.ok{background:#22c55e;} 
+.norent{background:#f59e0b;} 
+.noreturn{background:#ef4444;}
+.icon div{line-height:1;font-size:12px;}
+</style>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 <body>
-<div id="app">
-  <header>
-    <h1>桃園 YouBike 即時更新地圖</h1>
-    <div class="sub">資料來源：桃園資料開放平台（公共自行車2.0系統即時資料）</div>
-    <div class="controls">
-      <input id="searchBox" type="search" placeholder="輸入站名或地址關鍵字（例如：桃園火車站）" />
-      <select id="districtFilter">
-        <option value="">全部行政區</option>
-      </select>
-      <span id="lastUpdated">最近更新：--</span>
-      <span class="legend">
-        <span><span class="dot green"></span>可借充足</span>
-        <span><span class="dot orange"></span>偏少</span>
-        <span><span class="dot red"></span>無車/無位</span>
-        <span><span class="dot gray"></span>停用</span>
-      </span>
-    </div>
-  </header>
-  <div id="map"></div>
-  <footer>
-    由 GitHub Pages 提供前端展示；每 30 秒自動更新（可手動重新整理）。
-  </footer>
+
+<div class="panel">
+  <b>搜尋：</b><input id="q" placeholder="站名 / 站號 / 地址">
+  <b>行政區：</b><select id="district"><option value="">全部</option></select>
+  <b>狀態：</b><select id="status">
+    <option value="">全部</option>
+    <option value="open">營運中</option>
+    <option value="closed">暫停</option>
+  </select>
+  <b>更新：</b><select id="refresh">
+    <option value="30">30秒</option>
+    <option value="60" selected>60秒</option>
+    <option value="0">手動</option>
+  </select>
+  <button id="reload">立即更新</button>
+  <span id="info"></span>
 </div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-o9N1j7kGStG3bX2lHhZ9YfZcQ3Z2qG1QzAgAj1Z+3qU=" crossorigin=""></script>
+<div id="map"></div>
+
 <script>
-  // Taoyuan YouBike open data endpoint (JSON)
-  const API_URL = 'https://data.tycg.gov.tw/api/v1/rest/datastore/a1b4714b-3b75-4ff8-a8f2-cc377e4eaa0f?format=json';
+// 使用 CORS Proxy 避免被擋
+const API = "https://cors.isomorphic-git.org/https://data.ntpc.gov.tw/api/datasets/010e5b15-3823-4b20-b401-b1cf000550c5/json?page=0&size=20000";
 
-  // Leaflet map init
-  const map = L.map('map');
-  const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution: '&copy; OpenStreetMap contributors'
-  }).addTo(map);
+const el = id => document.getElementById(id);
+const q = el("q"), district = el("district"), statusSel = el("status"), refreshSel = el("refresh"), info = el("info");
 
-  // Layers
-  const markersLayer = L.layerGroup().addTo(map);
+let raw = [], view = [], timer=null;
 
-  // State
-  let allRecords = [];
-  let districts = new Set();
+const map = L.map('map').setView([25.06,121.5], 12);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19}).addTo(map);
+const layer = L.layerGroup().addTo(map);
 
-  function colorForStation(rec) {
-    const act = (rec.act || '').toString().trim();
-    if (act === '0') return 'gray';
-    const sbi = parseInt(rec.sbi, 10) || 0; // bikes available
-    const bemp = parseInt(rec.bemp, 10) || 0; // empty docks
-    const tot = parseInt(rec.tot, 10) || 0;
-    // If no bikes or no docks, red
-    if (sbi === 0 || bemp === 0) return 'red';
-    // If low availability (< 20% of total), orange
-    if (tot > 0 && Math.min(sbi, bemp) / tot < 0.2) return 'orange';
-    return 'green';
+function cls(s,b){
+  if(b==0) return "noreturn"; 
+  if(s==0) return "norent";  
+  return "ok"; 
+}
+
+function render(){
+  const kw = q.value.trim().toLowerCase();
+  const dist = district.value;
+  const st = statusSel.value;
+
+  view = raw.filter(r=>{
+    if(dist && r.sarea!==dist) return false;
+    if(st==="open" && r.act!=="1") return false;
+    if(st==="closed" && r.act==="1") return false;
+    if(!kw) return true;
+    return (r.sno+r.sna+(r.ar||"")).toLowerCase().includes(kw);
+  });
+
+  layer.clearLayers();
+
+  const pts=[];
+  view.forEach(r=>{
+    const lat=Number(r.lat), lng=Number(r.lng);
+    if(!lat||!lng) return;
+    const s=r.sbi, b=r.bemp;
+    const html = `<div class="icon ${cls(s,b)}"><div>${s}</div><div>${b}</div></div>`;
+    const icon = L.divIcon({className:"icon-wrap",html,iconSize:[38,38],iconAnchor:[19,19]});
+
+    // *** popup 已完全移除「見車率」 ***
+    const popupHTML = `
+      <b>${r.sna}</b><br>
+      站號：${r.sno}<br>
+      行政區：${r.sarea}<br>
+      可借：${s}｜可還：${b}<br>
+      車柱：${r.tot}<br>
+      地址：${r.ar}
+    `;
+
+    const m=L.marker([lat,lng],{icon})
+      .bindPopup(popupHTML)
+      .bindTooltip(r.sna);
+
+    m.addTo(layer);
+    pts.push([lat,lng]);
+  });
+
+  if(pts.length) map.fitBounds(pts,{padding:[20,20]});
+  info.textContent = `筆數：${view.length}`;
+}
+
+async function load(){
+  try{
+    info.textContent="讀取中...";
+    const res = await fetch(API);
+    const data = await res.json();
+    raw = Array.isArray(data)? data : data.data || [];
+    buildDistrict();
+    render();
+    info.textContent = "更新：" + new Date().toLocaleTimeString("zh-TW",{hour12:false});
+  }catch(e){
+    info.textContent="讀取失敗";
   }
+}
 
-  function dotHtml(color) {
-    const colors = { green: '#2ecc71', orange: '#f5a623', red: '#e74c3c', gray: '#9b9b9b' };
-    return `<span class="dot" style="background:${colors[color]}; width:10px; height:10px; border-radius:50%; display:inline-block"></span>`;
-  }
+function buildDistrict(){
+  const set = [...new Set(raw.map(r=>r.sarea))].sort((a,b)=>a.localeCompare(b,"zh-Hant"));
+  set.forEach(d=>{
+    const o=document.createElement("option");
+    o.value=d; o.textContent=d;
+    district.appendChild(o);
+  });
+}
 
-  function makePopup(rec) {
-    const updated = rec.mday ? rec.mday : '';
-    const name = rec.sna || '';
-    const addr = rec.ar || '';
-    const area = rec.sarea || '';
-    const sbi = parseInt(rec.sbi,10)||0;
-    const bemp = parseInt(rec.bemp,10)||0;
-    const tot = parseInt(rec.tot,10)||0;
-    const color = colorForStation(rec);
-    return `
-      <div style="min-width:220px">
-        <div style="font-weight:600; margin-bottom:4px;">${dotHtml(color)} ${name}</div>
-        <div>行政區：${area}</div>
-        <div>地址：${addr}</div>
-        <div>可借：<b>${sbi}</b> ｜ 可還：<b>${bemp}</b> ｜ 總格：${tot}</div>
-        <div style="color:#666; font-size:12px; margin-top:4px;">更新時間：${updated}</div>
-      </div>`;
-  }
+function auto(){
+  if(timer) clearInterval(timer);
+  const sec = Number(refreshSel.value);
+  if(sec>0) timer = setInterval(load, sec*1000);
+}
 
-  function updateDistrictFilter() {
-    const select = document.getElementById('districtFilter');
-    const current = select.value;
-    select.innerHTML = '<option value="">全部行政區</option>' +
-      Array.from(districts).sort().map(d => `<option value="${d}">${d}</option>`).join('');
-    select.value = current;
-  }
+q.addEventListener("input", render);
+district.addEventListener("change", render);
+statusSel.addEventListener("change", render);
+refreshSel.addEventListener("change", auto);
+el("reload").addEventListener("click", load);
 
-  function render() {
-    markersLayer.clearLayers();
-    const q = document.getElementById('searchBox').value.trim();
-    const d = document.getElementById('districtFilter').value;
-    const filtered = allRecords.filter(rec => {
-      const hitQ = !q || [rec.sna, rec.ar].some(x => (x||'').includes(q));
-      const hitD = !d || (rec.sarea || '') === d;
-      return hitQ && hitD;
-    });
-
-    const latlngs = [];
-    filtered.forEach(rec => {
-      const lat = parseFloat(rec.lat);
-      const lng = parseFloat(rec.lng);
-      if (!isFinite(lat) || !isFinite(lng)) return;
-      const color = colorForStation(rec);
-      const marker = L.circleMarker([lat, lng], {
-        radius: 7,
-        color: {green:'#2ecc71', orange:'#f5a623', red:'#e74c3c', gray:'#9b9b9b'}[color],
-        fillColor: {green:'#2ecc71', orange:'#f5a623', red:'#e74c3c', gray:'#9b9b9b'}[color],
-        fillOpacity: 0.85,
-        weight: 1
-      }).bindPopup(makePopup(rec));
-      marker.addTo(markersLayer);
-      latlngs.push([lat, lng]);
-    });
-
-    if (latlngs.length > 0) {
-      map.fitBounds(L.latLngBounds(latlngs), { padding: [20, 20] });
-    }
-  }
-
-  async function fetchData() {
-    try {
-      const res = await fetch(API_URL, { cache: 'no-store' });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const data = await res.json();
-      // CKAN format: { result: { records: [...] } }
-      const records = data?.result?.records || [];
-      allRecords = records;
-      districts = new Set(records.map(r => r.sarea).filter(Boolean));
-      updateDistrictFilter();
-      render();
-      // try to compute latest mday
-      const ts = records.map(r => r.mday).filter(Boolean).sort().slice(-1)[0];
-      document.getElementById('lastUpdated').textContent = '最近更新：' + (ts || '—');
-    } catch (err) {
-      console.error(err);
-      document.getElementById('lastUpdated').textContent = '更新失敗，請稍後重試';
-    }
-  }
-
-  // Wire controls
-  document.getElementById('searchBox').addEventListener('input', render);
-  document.getElementById('districtFilter').addEventListener('change', render);
-
-  // First load
-  fetchData();
-  // Auto refresh every 30 seconds
-  setInterval(fetchData, 30000);
+load();
+auto();
 </script>
+
 </body>
 </html>
