@@ -1,42 +1,39 @@
 <!doctype html>
 <html lang="zh-Hant-TW">
 <head>
-<meta charset="utf-8" />
+<meta charset="utf-8">
 <title>新北市 YouBike 2.0｜即時場站地圖</title>
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1">
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
 <style>
-html,body{margin:0;height:100%;font-family:"Microsoft JhengHei",sans-serif}
+html,body{margin:0;height:100%}
 #map{height:100vh}
 
 .panel{
   position:absolute;top:10px;left:10px;z-index:1000;
-  background:#fff;padding:10px;border-radius:10px;
-  box-shadow:0 2px 8px rgba(0,0,0,.25)
+  background:#fff;padding:10px;border-radius:8px;
+  box-shadow:0 2px 8px rgba(0,0,0,.25);
+  font-family:"Microsoft JhengHei",sans-serif;
 }
 .panel input,.panel select{
-  width:220px;margin-bottom:6px;padding:4px
+  width:200px;margin-bottom:6px;
 }
 
 /* split icon */
-.leaflet-marker-icon.icon-wrap{
-  background:none;border:none;
-}
-.icon-split{
+.leaflet-marker-icon.icon-wrap{background:none;border:none}
+.icon{
   width:42px;height:42px;border-radius:50%;
   display:flex;flex-direction:column;
-  justify-content:center;align-items:center;
+  align-items:center;justify-content:center;
   font-size:12px;font-weight:700;
-  color:#000;border:2px solid #333;
+  border:2px solid #333;color:#000;
 }
-.icon-split .divider{
-  width:70%;border-top:1px solid #000;margin:1px 0
-}
-.icon-ok{background:#22c55e}
-.icon-norent{background:#f59e0b}
-.icon-noreturn{background:#ef4444}
+.icon .line{width:70%;border-top:1px solid #000;margin:1px 0}
+.ok{background:#22c55e}
+.norent{background:#f59e0b}
+.noreturn{background:#ef4444}
 </style>
 </head>
 
@@ -44,26 +41,21 @@ html,body{margin:0;height:100%;font-family:"Microsoft JhengHei",sans-serif}
 
 <div class="panel">
   <input id="q" placeholder="搜尋場站名稱">
-  <select id="district">
+  <select id="area">
     <option value="">全部行政區</option>
   </select>
-  <div style="font-size:12px;color:#555">
-    每 60 秒自動更新
-  </div>
+  <div style="font-size:12px;color:#555">每 60 秒自動更新</div>
 </div>
 
 <div id="map"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-/* ========= 固定使用你可用的 Worker ========= */
 const API = "https://green-boat-a984.hippop3c.workers.dev/";
-const REFRESH_MS = 60000;
+const REFRESH = 60000;
 
 const map = L.map("map").setView([25.05,121.52],12);
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
-  maxZoom:19
-}).addTo(map);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19}).addTo(map);
 
 let raw = [];
 let markers = [];
@@ -74,34 +66,30 @@ function clearMarkers(){
 }
 
 function iconClass(rent,ret){
-  if(ret===0) return "icon-noreturn";
-  if(rent===0) return "icon-norent";
-  return "icon-ok";
+  if(ret===0) return "noreturn";
+  if(rent===0) return "norent";
+  return "ok";
 }
 
 function render(){
   clearMarkers();
   const kw = q.value.trim();
-  const dist = district.value;
+  const a  = area.value;
 
   raw.forEach(r=>{
-    if(dist && r.sarea !== dist) return;
+    if(!r || !r.latitude || !r.longitude) return;
+    if(a && r.sarea !== a) return;
     if(kw && !r.sna.includes(kw)) return;
 
-    const lat = Number(r.latitude);
-    const lng = Number(r.longitude);
-    if(!lat || !lng) return;
-
-    const rent = Number(r.available_rent_bikes)||0;
-    const ret  = Number(r.available_return_bikes)||0;
+    const rent = Number(r.available_rent_bikes);
+    const ret  = Number(r.available_return_bikes);
 
     const html = `
-      <div class="icon-split ${iconClass(rent,ret)}">
+      <div class="icon ${iconClass(rent,ret)}">
         <div>${rent}</div>
-        <div class="divider"></div>
+        <div class="line"></div>
         <div>${ret}</div>
-      </div>
-    `;
+      </div>`;
 
     const icon = L.divIcon({
       html,
@@ -110,44 +98,46 @@ function render(){
       iconAnchor:[21,21]
     });
 
-    const m = L.marker([lat,lng],{icon}).addTo(map);
+    const m = L.marker([r.latitude,r.longitude],{icon}).addTo(map);
     m.bindPopup(`
       <b>${r.sna}</b><br>
       行政區：${r.sarea}<br>
       可借：${rent}<br>
       可還：${ret}
     `);
-
     markers.push(m);
   });
 }
 
 async function fetchData(){
-  const res = await fetch(API,{cache:"no-store"});
-  raw = await res.json();
+  try{
+    const res = await fetch(API,{cache:"no-store"});
+    const data = await res.json();
+    if(!Array.isArray(data)) throw "資料格式錯誤";
 
-  // 行政區只建一次
-  if(district.options.length===1){
-    [...new Set(raw.map(r=>r.sarea))]
-      .filter(Boolean)
-      .sort((a,b)=>a.localeCompare(b,"zh-Hant"))
-      .forEach(a=>{
-        const o=document.createElement("option");
-        o.value=a;o.textContent=a;
-        district.appendChild(o);
-      });
+    raw = data;
+
+    // 建行政區
+    if(area.options.length===1){
+      [...new Set(raw.map(r=>r.sarea).filter(Boolean))]
+        .sort((a,b)=>a.localeCompare(b,"zh-Hant"))
+        .forEach(v=>{
+          const o=document.createElement("option");
+          o.value=v;o.textContent=v;
+          area.appendChild(o);
+        });
+    }
+    render();
+  }catch(e){
+    console.error("資料載入失敗",e);
   }
-
-  render();
 }
 
-/* ===== 事件 ===== */
 q.oninput = render;
-district.onchange = render;
+area.onchange = render;
 
-/* ===== 初始化 ===== */
 fetchData();
-setInterval(fetchData, REFRESH_MS);
+setInterval(fetchData,REFRESH);
 </script>
 </body>
 </html>
