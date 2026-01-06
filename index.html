@@ -1,350 +1,114 @@
 <!doctype html>
 <html lang="zh-Hant-TW">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>新北市 YouBike 2.0｜即時場站資訊（Worker 版）</title>
-  <meta name="description" content="新北市 YouBike 2.0 即時場站地圖（可借/可還 split 圓 icon）、搜尋、行政區與狀態篩選、自動更新。" />
+<meta charset="utf-8" />
+<title>新北市 YouBike 2.0｜即時場站地圖</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-  <style>
-    :root{
-      --bg:#0b1020; --card:#111730; --muted:#9aa3b2; --text:#eaf0ff;
-      --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444; --line:rgba(255,255,255,.08);
-    }
-    *{box-sizing:border-box}
-    body{margin:0; font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,"Noto Sans","PingFang TC","Microsoft JhengHei",sans-serif; background:var(--bg); color:var(--text)}
-    header{position:sticky; top:0; z-index:10; backdrop-filter:saturate(150%) blur(8px);
-      background:linear-gradient(180deg, rgba(11,16,32,.92), rgba(11,16,32,.68)); border-bottom:1px solid rgba(255,255,255,.06)}
-    .wrap{max-width:1200px; margin:0 auto; padding:16px}
-    h1{font-size:20px; margin:0 0 8px 0}
-    .controls{display:grid; gap:8px; grid-template-columns: 1fr 160px 160px 160px}
-    .controls > *{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px 12px}
-    .controls input,.controls select{width:100%; background:transparent; color:inherit; border:none; outline:none; font-size:14px}
-    .meta{display:flex; gap:8px; flex-wrap:wrap; align-items:center; font-size:12px; color:var(--muted); margin-top:8px}
-    .pill{padding:4px 8px; border-radius:999px; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.06)}
-    .pill.button{cursor:pointer}
-    .hint{margin-top:8px; font-size:12px; color:var(--muted)}
-    #map{height:60vh; width:100%; border-radius:16px; border:1px solid var(--line); background:#0a0f1f; margin:12px 0 16px}
-    .grid{background:var(--card); border-radius:16px; border:1px solid var(--line); overflow:hidden}
-    table{width:100%; border-collapse:collapse; font-size:14px}
-    thead{background:rgba(255,255,255,.04)}
-    th,td{padding:10px 12px; text-align:left; border-bottom:1px solid rgba(255,255,255,.06); white-space:nowrap}
-    th button{background:transparent; border:none; color:inherit; font:inherit; cursor:pointer; display:flex; align-items:center; gap:6px}
-    tr:hover td{background:rgba(255,255,255,.03)}
-    .footer{font-size:12px; color:var(--muted); padding:12px}
-    .hidden{display:none}
-    @media (max-width: 900px){ .controls{grid-template-columns:1fr 1fr} }
+<link
+  rel="stylesheet"
+  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+/>
 
-    /* Split circle icon */
-    .leaflet-marker-icon.icon-wrap{background:transparent!important; border:none!important}
-    .icon-split{
-      width:40px; height:40px; border-radius:50%;
-      border:2px solid rgba(0,0,0,.32);
-      display:flex; flex-direction:column; align-items:center; justify-content:center;
-      font-weight:900; color:#0b1020; line-height:1;
-      box-shadow:0 2px 6px rgba(0,0,0,.25);
-      user-select:none;
-    }
-    .icon-split .top,.icon-split .bottom{font-size:12px}
-    .icon-split .divider{width:70%; border-top:1.5px solid rgba(0,0,0,.35); margin:2px 0}
-    .icon-split.ok{background:var(--ok)}
-    .icon-split.norent{background:var(--warn)}
-    .icon-split.noreturn{background:var(--bad)}
-  </style>
-
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<style>
+html,body{margin:0;height:100%;font-family:"Microsoft JhengHei",sans-serif}
+#map{height:100vh}
+.panel{
+  position:absolute;top:10px;left:10px;z-index:1000;
+  background:#fff;padding:10px;border-radius:8px;
+  box-shadow:0 2px 6px rgba(0,0,0,.25)
+}
+.panel input,.panel select{width:200px;margin-bottom:6px}
+</style>
 </head>
 
 <body>
-<header>
-  <div class="wrap">
-    <h1>新北市 YouBike 2.0｜即時場站資訊（Worker 版）</h1>
+<div class="panel">
+  <input id="q" placeholder="搜尋場站名稱">
+  <select id="district">
+    <option value="">全部行政區</option>
+  </select>
+</div>
 
-    <div class="controls">
-      <label><input id="q" placeholder="搜尋場站名稱 / 站點代號 / 地址…" /></label>
-      <label><select id="district"><option value="">全部行政區</option></select></label>
-      <label><select id="status">
-        <option value="">全部狀態</option>
-        <option value="open">營運中</option>
-        <option value="closed">暫停營運</option>
-      </select></label>
-      <label><select id="interval">
-        <option value="30">每 30 秒自動更新</option>
-        <option value="60" selected>每 60 秒自動更新</option>
-        <option value="120">每 2 分鐘自動更新</option>
-        <option value="0">手動</option>
-      </select></label>
-    </div>
+<div id="map"></div>
 
-    <div class="meta">
-      <span id="mode" class="pill">資料來源：Worker</span>
-      <span id="lastUpdate" class="pill">最後更新：—</span>
-      <span id="count" class="pill">筆數：—</span>
-      <button id="manualBtn" class="pill button" title="立即更新">↻ 立即更新</button>
-    </div>
-
-    <div class="hint">
-      顏色規則：<b style="color:var(--ok)">綠</b>＝可借&gt;0 且 可還&gt;0；
-      <b style="color:var(--warn)">橘</b>＝可借=0；
-      <b style="color:var(--bad)">紅</b>＝可還=0。<br/>
-      本頁已做「多欄位對應」：Worker 回傳欄位名不同也能正常顯示。
-    </div>
-  </div>
-</header>
-
-<main class="wrap">
-  <div id="map"></div>
-
-  <div class="grid">
-    <table>
-      <thead>
-        <tr>
-          <th><button data-sort="sno">站點代號</button></th>
-          <th><button data-sort="sna">場站</button></th>
-          <th><button data-sort="sarea">行政區</button></th>
-          <th><button data-sort="sbi">可借</button></th>
-          <th><button data-sort="bemp">可還</button></th>
-          <th><button data-sort="tot">車柱</button></th>
-          <th>地址</th>
-          <th><button data-sort="act">狀態</button></th>
-        </tr>
-      </thead>
-      <tbody id="tbody"></tbody>
-    </table>
-    <div id="empty" class="footer hidden">找不到符合條件的場站。</div>
-    <div id="sourceNote" class="footer">資料由 Cloudflare Worker 轉發（解決 CORS）。</div>
-  </div>
-</main>
-
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-/**
- * ✅ 你只要改這裡：你的新北 Worker 端點
- * 需要回傳 JSON array（每筆至少要有站名/經緯度/可借/可還等）
- */
-const WORKER_ENDPOINT = "https://green-boat-a984.hippop3c.workers.dev/youbike";
+/* ========= API（可換成你自己的 Worker） ========= */
+// const API = "https://green-boat-a984.hippop3c.workers.dev/";
+const API = "https://data.ntpc.gov.tw/api/datasets/010e5b15-3823-4b20-b401-b1cf000550c5/json";
 
-const el = (id)=>document.getElementById(id);
-const tbody = el("tbody");
-const q = el("q");
-const district = el("district");
-const statusSel = el("status");
-const intervalSel = el("interval");
-const manualBtn = el("manualBtn");
-const lastUpdate = el("lastUpdate");
-const count = el("count");
+const map = L.map("map").setView([25.05,121.52],12);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
+  maxZoom:19
+}).addTo(map);
 
 let raw = [];
-let view = [];
-let timer = null;
-let sortKey = "sarea";
-let sortAsc = true;
-let districtBuilt = false;
+let markers = [];
 
-// Leaflet map
-const map = L.map("map", { zoomControl:true, attributionControl:true }).setView([25.06, 121.52], 12);
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "&copy; OpenStreetMap" }).addTo(map);
-const markerLayer = L.layerGroup().addTo(map);
-
-function getFirst(obj, keys){
-  for(const k of keys){
-    if(obj && Object.prototype.hasOwnProperty.call(obj, k) && obj[k] !== undefined && obj[k] !== null) return obj[k];
-  }
-  return undefined;
-}
-function toNum(v){
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
-}
-
-/**
- * 兼容不同資料欄位名稱（避免你看到可借全部 0）
- */
-function normalize(r){
-  const sno = String(getFirst(r, ["sno","SNO","station_no","StationNo","station_id","id","stationId"]) ?? "");
-  const sna = String(getFirst(r, ["sna","SNA","station_name","StationName","name","stationName"]) ?? "");
-  const sarea = String(getFirst(r, ["sarea","SAREA","district","area","行政區","sarea_name"]) ?? "");
-  const ar = String(getFirst(r, ["ar","AR","address","addr","站點地址","station_address"]) ?? "");
-
-  const lat = toNum(getFirst(r, ["lat","LAT","latitude","Latitude","y"]));
-  const lng = toNum(getFirst(r, ["lng","LNG","longitude","Longitude","x"]));
-
-  // 常見可借/可還欄位名：sbi/bemp 或 available_rent_bikes / available_return_bikes
-  const sbi = toNum(getFirst(r, ["sbi","SBI","available_rent_bikes","availableRentBikes","rent_bikes","bikes","available_bikes"]));
-  const bemp = toNum(getFirst(r, ["bemp","BEMP","available_return_bikes","availableReturnBikes","return_slots","empty","available_docks","parking_slots"]));
-  const tot = toNum(getFirst(r, ["tot","TOT","total","Total","capacity","slots","docks"]));
-
-  const actRaw = getFirst(r, ["act","ACT","is_open","open","status","available","營運狀態"]);
-  let act = "1";
-  if(actRaw === undefined) act = "1";
-  else if(actRaw === "1" || actRaw === 1 || actRaw === true || actRaw === "true" || actRaw === "open" || actRaw === "營運中") act = "1";
-  else act = "0";
-
-  return { sno, sna, sarea, ar, lat, lng, sbi, bemp, tot, act, _raw:r };
-}
-
-function iconClass(sbi, bemp){
-  if(bemp === 0) return "noreturn"; // 紅
-  if(sbi === 0) return "norent";    // 橘
-  return "ok";                      // 綠
-}
-
-function escapeHtml(s){
-  return String(s ?? "")
-    .replaceAll("&","&amp;")
-    .replaceAll("<","&lt;")
-    .replaceAll(">","&gt;")
-    .replaceAll('"',"&quot;")
-    .replaceAll("'","&#039;");
+function clearMarkers(){
+  markers.forEach(m=>map.removeLayer(m));
+  markers=[];
 }
 
 function render(){
-  const kw = q.value.trim().toLowerCase();
+  clearMarkers();
+  const kw = q.value.trim();
   const dist = district.value;
-  const st = statusSel.value;
 
-  view = raw.filter(r=>{
-    if(dist && r.sarea !== dist) return false;
-    if(st === "open" && r.act !== "1") return false;
-    if(st === "closed" && r.act === "1") return false;
-    if(!kw) return true;
-    const hay = `${r.sno}|${r.sna}|${r.ar||""}`.toLowerCase();
-    return hay.includes(kw);
-  });
+  raw.forEach(r=>{
+    if(dist && r.sarea !== dist) return;
+    if(kw && !r.sna.includes(kw)) return;
 
-  view.sort((a,b)=>{
-    const k = sortKey;
-    let va = a[k], vb = b[k];
-    if(typeof va === "string" && typeof vb === "string"){
-      return sortAsc ? va.localeCompare(vb,"zh-Hant") : vb.localeCompare(va,"zh-Hant");
-    }
-    va = toNum(va); vb = toNum(vb);
-    return sortAsc ? va - vb : vb - va;
-  });
+    const lat = Number(r.latitude);
+    const lng = Number(r.longitude);
+    if(!lat || !lng) return;
 
-  // table
-  tbody.innerHTML = "";
-  for(const r of view){
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${escapeHtml(r.sno)}</td>
-      <td>${escapeHtml(r.sna)}</td>
-      <td>${escapeHtml(r.sarea)}</td>
-      <td>${r.sbi}</td>
-      <td>${r.bemp}</td>
-      <td>${r.tot}</td>
-      <td>${escapeHtml(r.ar||"")}</td>
-      <td>${r.act==="1" ? "營運中" : "暫停"}</td>
-    `;
-    tbody.appendChild(tr);
-  }
+    const rent = Number(r.available_rent_bikes) || 0;
+    const ret  = Number(r.available_return_bikes) || 0;
 
-  el("empty").classList.toggle("hidden", view.length > 0);
-  count.textContent = `筆數：${view.length}`;
+    const color = rent===0 ? "#f59e0b" : "#22c55e";
 
-  // district options
-  if(!districtBuilt && raw.length){
-    const areas = [...new Set(raw.map(r=>r.sarea).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"zh-Hant"));
-    for(const a of areas){
-      const opt = document.createElement("option");
-      opt.value = a; opt.textContent = a;
-      district.appendChild(opt);
-    }
-    districtBuilt = true;
-  }
+    const m = L.circleMarker([lat,lng],{
+      radius:8,
+      color:"#333",
+      fillColor:color,
+      fillOpacity:0.9
+    }).addTo(map);
 
-  updateMap();
-}
-
-function updateMap(){
-  markerLayer.clearLayers();
-  if(!view.length) return;
-
-  const pts = [];
-  for(const r of view){
-    if(!r.lat || !r.lng) continue;
-
-    const cls = iconClass(r.sbi, r.bemp);
-    const html = `
-      <div class="icon-split ${cls}">
-        <div class="top">${r.sbi}</div>
-        <div class="divider"></div>
-        <div class="bottom">${r.bemp}</div>
-      </div>
-    `;
-    const icon = L.divIcon({
-      className: "icon-wrap",
-      html,
-      iconSize: [40,40],
-      iconAnchor: [20,20]
-    });
-
-    const m = L.marker([r.lat, r.lng], { icon });
-    m.bindTooltip(r.sna || r.sno, { direction:"top", sticky:true });
-
-    // ✅ Popup：不含見車率（依你的要求）
     m.bindPopup(`
-      <b>${escapeHtml(r.sna)}</b><br/>
-      站號：${escapeHtml(r.sno)}<br/>
-      行政區：${escapeHtml(r.sarea)}<br/>
-      可借：${r.sbi}｜可還：${r.bemp}｜車柱：${r.tot}<br/>
-      ${r.ar ? ("地址：" + escapeHtml(r.ar)) : ""}
+      <b>${r.sna}</b><br>
+      行政區：${r.sarea}<br>
+      可借：${rent}<br>
+      可還：${ret}
     `);
 
-    m.addTo(markerLayer);
-    pts.push([r.lat, r.lng]);
-  }
-
-  if(pts.length){
-    map.fitBounds(L.latLngBounds(pts).pad(0.06));
-  }
+    markers.push(m);
+  });
 }
 
-async function fetchData(){
-  try{
-    const url = WORKER_ENDPOINT + (WORKER_ENDPOINT.includes("?") ? "&" : "?") + "ts=" + Date.now();
-    const res = await fetch(url, { cache:"no-store" });
-    if(!res.ok) throw new Error(res.status + " " + res.statusText);
+fetch(API)
+  .then(r=>r.json())
+  .then(data=>{
+    raw = data;
 
-    const data = await res.json();
-    if(!Array.isArray(data)) throw new Error("Worker 回傳格式不是陣列（Array）");
+    const areas = [...new Set(raw.map(r=>r.sarea))]
+      .filter(Boolean)
+      .sort((a,b)=>a.localeCompare(b,"zh-Hant"));
 
-    raw = data.map(normalize);
+    areas.forEach(a=>{
+      const o=document.createElement("option");
+      o.value=a;
+      o.textContent=a;
+      district.appendChild(o);
+    });
 
-    lastUpdate.textContent = "最後更新：" + new Date().toLocaleString("zh-TW", { hour12:false });
-    render();
-  }catch(e){
-    console.error("取得資料失敗：", e);
-    lastUpdate.textContent = "最後更新失敗：" + (e.message || e);
-    alert("YouBike 資料抓取失敗：\n" + (e.message || e));
-  }
-}
-
-function setTimer(){
-  if(timer) clearInterval(timer);
-  const sec = Number(intervalSel.value);
-  if(sec > 0) timer = setInterval(fetchData, sec*1000);
-}
-
-/* events */
-q.addEventListener("input", render);
-district.addEventListener("change", render);
-statusSel.addEventListener("change", render);
-intervalSel.addEventListener("change", setTimer);
-manualBtn.addEventListener("click", fetchData);
-
-document.querySelectorAll("th button[data-sort]").forEach(btn=>{
-  btn.addEventListener("click", ()=>{
-    const k = btn.getAttribute("data-sort");
-    if(sortKey === k) sortAsc = !sortAsc;
-    else { sortKey = k; sortAsc = true; }
     render();
   });
-});
 
-/* init */
-fetchData();
-setTimer();
+q.oninput = render;
+district.onchange = render;
 </script>
 </body>
 </html>
+
