@@ -2,23 +2,23 @@
 <html lang="zh-Hant-TW">
 <head>
 <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>新北市 YouBike 2.0｜地圖版（無見車率）</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>YouBike 無見車率版（GitHub 可用）</title>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
 <style>
 body{
-  margin:0; font-family:-apple-system,BlinkMacSystemFont,"Microsoft JhengHei",sans-serif;
-  background:#0b1020; color:#fff;
+  margin:0;
+  font-family:-apple-system,BlinkMacSystemFont,"Microsoft JhengHei",sans-serif;
+  background:#0b1020;color:#fff;
 }
 #map{height:70vh;width:100%;}
 .panel{padding:10px;background:#111730;}
 input,select{padding:6px;border-radius:6px;border:none;margin-right:6px;}
-
-.icon-wrap{background:transparent!important;border:none!important;}
+.icon-wrap{background:transparent!important;}
 .icon{
-  width:38px;height:38px;border-radius:50%;
+  width:40px;height:40px;border-radius:50%;
   display:flex;flex-direction:column;justify-content:center;align-items:center;
   font-weight:700;
 }
@@ -30,44 +30,48 @@ input,select{padding:6px;border-radius:6px;border:none;margin-right:6px;}
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
+
 <body>
 
 <div class="panel">
-  <b>搜尋：</b><input id="q" placeholder="站名 / 站號 / 地址">
-  <b>行政區：</b><select id="district"><option value="">全部</option></select>
-  <b>狀態：</b><select id="status">
-    <option value="">全部</option>
-    <option value="open">營運中</option>
-    <option value="closed">暫停</option>
-  </select>
-  <b>更新：</b><select id="refresh">
-    <option value="30">30秒</option>
-    <option value="60" selected>60秒</option>
-    <option value="0">手動</option>
-  </select>
-  <button id="reload">立即更新</button>
-  <span id="info"></span>
+<b>搜尋：</b><input id="q" placeholder="站名 / 站號 / 地址">
+<b>行政區：</b><select id="district"><option value="">全部</option></select>
+<b>狀態：</b>
+<select id="status">
+  <option value="">全部</option>
+  <option value="open">營運中</option>
+  <option value="closed">暫停</option>
+</select>
+<b>更新：</b>
+<select id="refresh">
+  <option value="30">30秒</option>
+  <option value="60" selected>60秒</option>
+  <option value="0">手動</option>
+</select>
+<button id="reload">立即更新</button>
+<span id="info"></span>
 </div>
 
 <div id="map"></div>
 
 <script>
-// 使用 CORS Proxy 避免被擋
-const API = "https://cors.isomorphic-git.org/https://data.ntpc.gov.tw/api/datasets/010e5b15-3823-4b20-b401-b1cf000550c5/json?page=0&size=20000";
+// ===== 使用你的 Cloudflare Worker（必須允許 CORS）=====
+const API = "https://green-boat-a984.hippop3c.workers.dev/?page=0&size=20000";
 
-const el = id => document.getElementById(id);
-const q = el("q"), district = el("district"), statusSel = el("status"), refreshSel = el("refresh"), info = el("info");
+const el=id=>document.getElementById(id);
+const q=el("q"), district=el("district"), statusSel=el("status"), refreshSel=el("refresh"), info=el("info");
 
-let raw = [], view = [], timer=null;
+let raw=[], view=[], timer=null;
 
-const map = L.map('map').setView([25.06,121.5], 12);
+// ===== Leaflet map =====
+const map = L.map("map").setView([25.06,121.5],12);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19}).addTo(map);
 const layer = L.layerGroup().addTo(map);
 
 function cls(s,b){
-  if(b==0) return "noreturn"; 
-  if(s==0) return "norent";  
-  return "ok"; 
+  if(b==0) return "noreturn";
+  if(s==0) return "norent";
+  return "ok";
 }
 
 function render(){
@@ -80,31 +84,22 @@ function render(){
     if(st==="open" && r.act!=="1") return false;
     if(st==="closed" && r.act==="1") return false;
     if(!kw) return true;
-    return (r.sno+r.sna+(r.ar||"")).toLowerCase().includes(kw);
+    return (r.sna+r.sno+(r.ar||"")).toLowerCase().includes(kw);
   });
 
   layer.clearLayers();
-
   const pts=[];
+
   view.forEach(r=>{
     const lat=Number(r.lat), lng=Number(r.lng);
     if(!lat||!lng) return;
     const s=r.sbi, b=r.bemp;
-    const html = `<div class="icon ${cls(s,b)}"><div>${s}</div><div>${b}</div></div>`;
-    const icon = L.divIcon({className:"icon-wrap",html,iconSize:[38,38],iconAnchor:[19,19]});
 
-    // *** popup 已完全移除「見車率」 ***
-    const popupHTML = `
-      <b>${r.sna}</b><br>
-      站號：${r.sno}<br>
-      行政區：${r.sarea}<br>
-      可借：${s}｜可還：${b}<br>
-      車柱：${r.tot}<br>
-      地址：${r.ar}
-    `;
+    const html = `<div class="icon ${cls(s,b)}"><div>${s}</div><div>${b}</div></div>`;
+    const icon = L.divIcon({className:"icon-wrap",html,iconSize:[40,40],iconAnchor:[20,20]});
 
     const m=L.marker([lat,lng],{icon})
-      .bindPopup(popupHTML)
+      .bindPopup(`<b>${r.sna}</b><br>站號：${r.sno}<br>可借：${s}<br>可還：${b}<br>地址：${r.ar}`)
       .bindTooltip(r.sna);
 
     m.addTo(layer);
@@ -117,20 +112,22 @@ function render(){
 
 async function load(){
   try{
-    info.textContent="讀取中...";
-    const res = await fetch(API);
-    const data = await res.json();
-    raw = Array.isArray(data)? data : data.data || [];
+    info.textContent="讀取中…";
+    const res=await fetch(API);
+    const data=await res.json();
+    raw = Array.isArray(data)? data : data.data;
     buildDistrict();
     render();
     info.textContent = "更新：" + new Date().toLocaleTimeString("zh-TW",{hour12:false});
   }catch(e){
-    info.textContent="讀取失敗";
+    info.textContent="抓取失敗";
+    alert("資料抓取失敗："+e);
   }
 }
 
 function buildDistrict(){
-  const set = [...new Set(raw.map(r=>r.sarea))].sort((a,b)=>a.localeCompare(b,"zh-Hant"));
+  district.innerHTML='<option value="">全部</option>';
+  const set=[...new Set(raw.map(r=>r.sarea))].sort((a,b)=>a.localeCompare(b,"zh-Hant"));
   set.forEach(d=>{
     const o=document.createElement("option");
     o.value=d; o.textContent=d;
@@ -140,15 +137,15 @@ function buildDistrict(){
 
 function auto(){
   if(timer) clearInterval(timer);
-  const sec = Number(refreshSel.value);
-  if(sec>0) timer = setInterval(load, sec*1000);
+  const sec=Number(refreshSel.value);
+  if(sec>0) timer=setInterval(load, sec*1000);
 }
 
-q.addEventListener("input", render);
-district.addEventListener("change", render);
-statusSel.addEventListener("change", render);
-refreshSel.addEventListener("change", auto);
-el("reload").addEventListener("click", load);
+q.addEventListener("input",render);
+district.addEventListener("change",render);
+statusSel.addEventListener("change",render);
+refreshSel.addEventListener("change",auto);
+el("reload").addEventListener("click",load);
 
 load();
 auto();
@@ -156,3 +153,4 @@ auto();
 
 </body>
 </html>
+
