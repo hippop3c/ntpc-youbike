@@ -5,38 +5,60 @@
 <title>新北市 YouBike 2.0｜即時場站地圖</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-<link
-  rel="stylesheet"
-  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
 <style>
 html,body{margin:0;height:100%;font-family:"Microsoft JhengHei",sans-serif}
 #map{height:100vh}
+
 .panel{
   position:absolute;top:10px;left:10px;z-index:1000;
-  background:#fff;padding:10px;border-radius:8px;
-  box-shadow:0 2px 6px rgba(0,0,0,.25)
+  background:#fff;padding:10px;border-radius:10px;
+  box-shadow:0 2px 8px rgba(0,0,0,.25)
 }
-.panel input,.panel select{width:200px;margin-bottom:6px}
+.panel input,.panel select{
+  width:220px;margin-bottom:6px;padding:4px
+}
+
+/* split icon */
+.leaflet-marker-icon.icon-wrap{
+  background:none;border:none;
+}
+.icon-split{
+  width:42px;height:42px;border-radius:50%;
+  display:flex;flex-direction:column;
+  justify-content:center;align-items:center;
+  font-size:12px;font-weight:700;
+  color:#000;border:2px solid #333;
+}
+.icon-split .divider{
+  width:70%;border-top:1px solid #000;margin:1px 0
+}
+.icon-ok{background:#22c55e}
+.icon-norent{background:#f59e0b}
+.icon-noreturn{background:#ef4444}
 </style>
 </head>
 
 <body>
+
 <div class="panel">
   <input id="q" placeholder="搜尋場站名稱">
   <select id="district">
     <option value="">全部行政區</option>
   </select>
+  <div style="font-size:12px;color:#555">
+    每 60 秒自動更新
+  </div>
 </div>
 
 <div id="map"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-/* ========= API（可換成你自己的 Worker） ========= */
-// const API = "https://green-boat-a984.hippop3c.workers.dev/";
-const API = "https://data.ntpc.gov.tw/api/datasets/010e5b15-3823-4b20-b401-b1cf000550c5/json";
+/* ========= 固定使用你可用的 Worker ========= */
+const API = "https://green-boat-a984.hippop3c.workers.dev/";
+const REFRESH_MS = 60000;
 
 const map = L.map("map").setView([25.05,121.52],12);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
@@ -49,6 +71,12 @@ let markers = [];
 function clearMarkers(){
   markers.forEach(m=>map.removeLayer(m));
   markers=[];
+}
+
+function iconClass(rent,ret){
+  if(ret===0) return "icon-noreturn";
+  if(rent===0) return "icon-norent";
+  return "icon-ok";
 }
 
 function render(){
@@ -64,18 +92,25 @@ function render(){
     const lng = Number(r.longitude);
     if(!lat || !lng) return;
 
-    const rent = Number(r.available_rent_bikes) || 0;
-    const ret  = Number(r.available_return_bikes) || 0;
+    const rent = Number(r.available_rent_bikes)||0;
+    const ret  = Number(r.available_return_bikes)||0;
 
-    const color = rent===0 ? "#f59e0b" : "#22c55e";
+    const html = `
+      <div class="icon-split ${iconClass(rent,ret)}">
+        <div>${rent}</div>
+        <div class="divider"></div>
+        <div>${ret}</div>
+      </div>
+    `;
 
-    const m = L.circleMarker([lat,lng],{
-      radius:8,
-      color:"#333",
-      fillColor:color,
-      fillOpacity:0.9
-    }).addTo(map);
+    const icon = L.divIcon({
+      html,
+      className:"icon-wrap",
+      iconSize:[42,42],
+      iconAnchor:[21,21]
+    });
 
+    const m = L.marker([lat,lng],{icon}).addTo(map);
     m.bindPopup(`
       <b>${r.sna}</b><br>
       行政區：${r.sarea}<br>
@@ -87,27 +122,32 @@ function render(){
   });
 }
 
-fetch(API)
-  .then(r=>r.json())
-  .then(data=>{
-    raw = data;
+async function fetchData(){
+  const res = await fetch(API,{cache:"no-store"});
+  raw = await res.json();
 
-    const areas = [...new Set(raw.map(r=>r.sarea))]
+  // 行政區只建一次
+  if(district.options.length===1){
+    [...new Set(raw.map(r=>r.sarea))]
       .filter(Boolean)
-      .sort((a,b)=>a.localeCompare(b,"zh-Hant"));
+      .sort((a,b)=>a.localeCompare(b,"zh-Hant"))
+      .forEach(a=>{
+        const o=document.createElement("option");
+        o.value=a;o.textContent=a;
+        district.appendChild(o);
+      });
+  }
 
-    areas.forEach(a=>{
-      const o=document.createElement("option");
-      o.value=a;
-      o.textContent=a;
-      district.appendChild(o);
-    });
+  render();
+}
 
-    render();
-  });
-
+/* ===== 事件 ===== */
 q.oninput = render;
 district.onchange = render;
+
+/* ===== 初始化 ===== */
+fetchData();
+setInterval(fetchData, REFRESH_MS);
 </script>
 </body>
 </html>
